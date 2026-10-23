@@ -1,4 +1,4 @@
-# PokeCard Scan
+# TCG Card Scanner
 
 Android app for scanning Pokémon cards into collections, pricing them with TCGplayer market
 prices, and exporting them to CSV.
