@@ -178,7 +178,7 @@ fun CollectionScreen(vm: MainViewModel, onScan: () -> Unit) {
                         },
                         onExportAll = {
                             exportAll = true
-                            exportLauncher.launch("pokecard-scan-all-${LocalDate.now()}.csv")
+                            exportLauncher.launch("tcg-card-scanner-all-${LocalDate.now()}.csv")
                         },
                     )
                 },

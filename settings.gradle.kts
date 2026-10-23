@@ -17,5 +17,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "PokeCardScan"
+rootProject.name = "TCGCardScanner"
 include(":app")

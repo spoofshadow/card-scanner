@@ -17,7 +17,7 @@ object CsvImporter {
             ?: error("The file is empty")
         val columns = header.withIndex().associate { (i, name) -> name.lowercase() to i }
         if ("name" !in columns || "card id" !in columns) {
-            error("This doesn't look like a PokeCard Scan export (no Name or Card ID column)")
+            error("This doesn't look like a TCG Card Scanner export (no Name or Card ID column)")
         }
 
         return rows.drop(1).mapNotNull { row ->
