@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Single-colour outline for Android 13+ themed icons; the launcher supplies the colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="59"
+        android:pivotY="54"
+        android:rotation="8">
+        <path
+            android:strokeColor="#000000"
+            android:strokeWidth="4"
+            android:pathData="M47,30h24a5,5 0,0 1,5 5v38a5,5 0,0 1,-5 5h-24a5,5 0,0 1,-5 -5v-38a5,5 0,0 1,5 -5z" />
+    </group>
+    <path
+        android:strokeColor="#000000"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:pathData="M70,70L82,82" />
+    <path
+        android:strokeColor="#000000"
+        android:strokeWidth="5"
+        android:pathData="M62,51a11,11 0,1 1,0 22a11,11 0,1 1,0 -22z" />
+</vector>
