@@ -38,6 +38,9 @@ data class ApiCard(
 
 data class ApiSet(val id: String, val name: String, val printedTotal: Int?)
 
+/** Cards to show for a lookup, and how many matched in total (more than shown when capped). */
+data class IdentifyResult(val cards: List<ApiCard>, val totalFound: Int)
+
 data class ApiImages(val small: String?, val large: String?)
 
 /** TCGplayer prices keyed by variant (normal, holofoil, reverseHolofoil, …). */
@@ -134,12 +137,32 @@ class TcgdexApi(
     @Volatile private var pocketSetIds: Set<String>? = null
 
     /** Returns the matches for the most specific search that finds any physical card. */
-    suspend fun identify(scan: ScanResult): List<ApiCard> {
+    suspend fun identify(scan: ScanResult): IdentifyResult {
+        // Unnumbered basic Energy: the name alone matches dozens of printings, so list them all.
+        if (scan.basicEnergy && scan.number == null && scan.name != null) return identifyBasicEnergy(scan.name)
         for (filters in scan.filterSets()) {
-            val cards = getCards(searchIds(filters).take(MAX_MATCHES))
-            if (cards.isNotEmpty()) return cards
+            val ids = searchIds(filters)
+            val cards = getCards(ids.take(MAX_MATCHES))
+            if (cards.isNotEmpty()) return IdentifyResult(cards, ids.size)
         }
-        return emptyList()
+        return IdentifyResult(emptyList(), 0)
+    }
+
+    /**
+     * Every printing of a basic Energy. Most are named "Fire Energy", newer ones "Basic Fire Energy".
+     * The Scarlet & Violet / Mega Evolution Energy sets (today's unnumbered bulk Energy) come first.
+     */
+    private suspend fun identifyBasicEnergy(name: String): IdentifyResult {
+        val ids = (searchIds(mapOf("name" to "eq:$name"), ENERGY_PAGE_SIZE) +
+            searchIds(mapOf("name" to "eq:Basic $name"), ENERGY_PAGE_SIZE)).distinct()
+        val ranked = ids.sortedBy { id ->
+            when {
+                id.substringBeforeLast('-') in ENERGY_SETS -> 0
+                id.startsWith("tk-") -> 2
+                else -> 1
+            }
+        }
+        return IdentifyResult(getCards(ranked.take(ENERGY_PAGE_SIZE)), ids.size)
     }
 
     /** Fetches full card details (with prices) in parallel; unknown ids are skipped. */
@@ -168,17 +191,22 @@ class TcgdexApi(
         return cards.singleOrNull() ?: cards.firstOrNull { it.set.name.equals(setName, ignoreCase = true) }
     }
 
-    private suspend fun searchIds(filters: Map<String, String>): List<String> {
+    /**
+     * Matching card ids, minus TCG Pocket cards. TCGdex orders by card number, which puts Trainer
+     * Kit decks (ids "tk-…") ahead of the main sets, so those are moved to the end.
+     */
+    private suspend fun searchIds(filters: Map<String, String>, pageSize: Int = SEARCH_PAGE_SIZE): List<String> {
         val url = BASE_URL.toHttpUrl().newBuilder()
             .addPathSegment("cards")
             .apply { filters.forEach { (key, value) -> addQueryParameter(key, value) } }
-            .addQueryParameter("pagination:itemsPerPage", SEARCH_PAGE_SIZE.toString())
+            .addQueryParameter("pagination:itemsPerPage", pageSize.toString())
             .build()
         val body = fetch(url) ?: return emptyList()
         val pocket = pocketSets()
         return json.decodeFromString<List<TcgdexBrief>>(body)
             .map { it.id }
             .filterNot { it.substringBeforeLast('-') in pocket }
+            .sortedBy { it.startsWith("tk-") }
     }
 
     /** Set ids from TCG Pocket (the mobile game), which has no physical cards to collect. */
@@ -219,6 +247,10 @@ class TcgdexApi(
         const val BASE_URL = "https://api.tcgdex.net/v2/en"
         const val SEARCH_PAGE_SIZE = 50
         const val MAX_MATCHES = 12
+        /** Basic Energy has up to ~60 printings per type; fetch them all. */
+        const val ENERGY_PAGE_SIZE = 100
+        /** Sets holding the current unnumbered basic Energy. */
+        val ENERGY_SETS = setOf("sve", "mee")
         const val MAX_PARALLEL_REQUESTS = 6
         const val MAX_ATTEMPTS = 4
         const val RETRY_BASE_MS = 300L

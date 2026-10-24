@@ -14,6 +14,15 @@ object CardTextParser {
     private val hpRegex = Regex("""(HP\s*\d{2,3}|\d{2,3}\s*HP)""", RegexOption.IGNORE_CASE)
     private val stagePrefix = Regex("""^(BASIC|STAGE\s*[12]?)\s+""", RegexOption.IGNORE_CASE)
 
+    // A whole line reading "[Basic] <type> Energy". Anchored so attack text such as
+    // "Attach a Fire Energy card" and special Energy ("Rocky Fighting Energy") don't match.
+    private val basicEnergyRegex = Regex("""^(?:basic\s+)?([a-z]+)\s+energy$""", RegexOption.IGNORE_CASE)
+    private val energyTypes = mapOf(
+        "grass" to "Grass", "fire" to "Fire", "water" to "Water", "lightning" to "Lightning",
+        "psychic" to "Psychic", "fighting" to "Fighting", "darkness" to "Darkness", "dark" to "Darkness",
+        "metal" to "Metal", "fairy" to "Fairy",
+    )
+
     // First words of lines that are never a card name.
     private val nonNameWords = setOf(
         "basic", "stage", "evolves", "hp", "trainer", "item", "supporter", "stadium", "tool",
@@ -31,6 +40,11 @@ object CardTextParser {
             .lastOrNull()
         val (number, total) = numberMatch?.let(::normalize) ?: (null to null)
 
+        // Basic Energy names can be split over lines ("Basic" / "Fire Energy"), so check blocks too.
+        val energy = (lines.map { it.text } + text.textBlocks.map { it.text })
+            .firstNotNullOfOrNull(::basicEnergyName)
+        if (energy != null) return ScanResult(energy, number, total, basicEnergy = true)
+
         // The card name is the largest text on the card that isn't HP or a header.
         val name = lines
             .mapNotNull { line -> cleanName(line.text)?.let { it to (line.boundingBox?.height() ?: 0) } }
@@ -38,6 +52,18 @@ object CardTextParser {
             ?.first
 
         return ScanResult(name, number, total)
+    }
+
+    /** "Basic Fire Energy", "fire energy" or "Dark Energy" -> the database name, e.g. "Fire Energy". */
+    fun basicEnergyName(text: String): String? {
+        val normalized = text.replace(Regex("""[^\p{L}]+"""), " ").trim()
+        val match = basicEnergyRegex.matchEntire(normalized) ?: return null
+        return energyTypes[match.groupValues[1].lowercase()]?.let { "$it Energy" }
+    }
+
+    private fun withBasicEnergy(result: ScanResult): ScanResult {
+        val energy = result.name?.let(::basicEnergyName) ?: return result
+        return result.copy(name = energy, basicEnergy = true)
     }
 
     /** Parses typed searches like "Pikachu", "Pikachu 25", "25/165" or "Charizard ex 199/165". */
@@ -48,14 +74,14 @@ object CardTextParser {
             // Keep letters typed against the number ("pikachu25/165") as part of the name.
             val numberStart = if (total == null) match.range.first else match.groups[2]!!.range.first
             val name = trimmed.removeRange(numberStart..match.range.last).trim().ifBlank { null }
-            return ScanResult(name, number, total)
+            return withBasicEnergy(ScanResult(name, number, total))
         }
         val tokens = trimmed.split(Regex("\\s+"))
         val last = tokens.last().removePrefix("#")
         if (tokens.size > 1 && last.length in 1..3 && last.all(Char::isDigit)) {
-            return ScanResult(tokens.dropLast(1).joinToString(" "), stripZeros(last), null)
+            return withBasicEnergy(ScanResult(tokens.dropLast(1).joinToString(" "), stripZeros(last), null))
         }
-        return ScanResult(trimmed.ifBlank { null }, null, null)
+        return withBasicEnergy(ScanResult(trimmed.ifBlank { null }, null, null))
     }
 
     private fun normalize(match: MatchResult): Pair<String, Int?> {

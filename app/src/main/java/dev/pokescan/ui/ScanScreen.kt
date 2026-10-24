@@ -191,11 +191,18 @@ fun ScanScreen(vm: MainViewModel, onClose: () -> Unit) {
 @Composable
 private fun MatchList(results: LookupState.Results, onAdd: (ApiCard, String) -> Unit) {
     Column(Modifier.padding(horizontal = 16.dp)) {
+        val shown = results.cards.size
+        val capped = results.totalFound > shown
         Text(
-            "${results.cards.size} match${if (results.cards.size == 1) "" else "es"} for ${results.query}",
+            if (capped) "Showing $shown of ${results.totalFound} matches for ${results.query}"
+            else "$shown match${if (shown == 1) "" else "es"} for ${results.query}",
             style = MaterialTheme.typography.titleMedium,
         )
-        Text("Tap a variant to add it to your collection", style = MaterialTheme.typography.bodySmall)
+        Text(
+            if (capped) "Not here? Search with the card number too, e.g. Pikachu 25/165"
+            else "Tap a variant to add it to your collection",
+            style = MaterialTheme.typography.bodySmall,
+        )
         LazyColumn(
             contentPadding = PaddingValues(vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),

@@ -5,6 +5,8 @@ data class ScanResult(
     val name: String?,
     val number: String?,
     val printedTotal: Int?,
+    /** True when [name] is a basic Energy ("Fire Energy"), which has dozens of printings. */
+    val basicEnergy: Boolean = false,
 ) {
     val isUseful: Boolean get() = name != null || number != null
 

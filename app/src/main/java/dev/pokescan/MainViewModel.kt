@@ -40,7 +40,8 @@ import kotlinx.coroutines.withContext
 sealed interface LookupState {
     data object Idle : LookupState
     data object Loading : LookupState
-    data class Results(val query: String, val cards: List<ApiCard>) : LookupState
+    /** [totalFound] exceeds [cards].size when the matches were capped. */
+    data class Results(val query: String, val cards: List<ApiCard>, val totalFound: Int) : LookupState
     data class Error(val message: String) : LookupState
 }
 
@@ -140,8 +141,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             stableCount = 1
         }
         val busy = _lookup.value is LookupState.Loading || _lookup.value is LookupState.Results
-        // Auto-scan only on a collector number; a name alone matches too many printings.
-        if (autoScan.value && !busy && result.number != null &&
+        // Auto-scan only on a collector number, since a name alone matches too many printings.
+        // Basic Energy is the exception: it often has no number, and its lookup lists every printing.
+        if (autoScan.value && !busy && (result.number != null || result.basicEnergy) &&
             stableCount >= STABLE_FRAMES && result.key != lastLookupKey
         ) {
             lookup(result)
@@ -162,9 +164,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _lookup.value = LookupState.Loading
         lookupJob = viewModelScope.launch {
             _lookup.value = try {
-                val cards = api.identify(scan)
-                if (cards.isEmpty()) LookupState.Error("No match for ${scan.describe()}")
-                else LookupState.Results(scan.describe(), cards)
+                val result = api.identify(scan)
+                if (result.cards.isEmpty()) LookupState.Error("No match for ${scan.describe()}")
+                else LookupState.Results(scan.describe(), result.cards, result.totalFound)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
