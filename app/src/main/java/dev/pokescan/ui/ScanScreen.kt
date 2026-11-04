@@ -36,6 +36,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,12 +66,12 @@ import coil.compose.AsyncImage
 import dev.pokescan.LookupState
 import dev.pokescan.MainViewModel
 import dev.pokescan.api.ApiCard
+import dev.pokescan.api.Game
 import dev.pokescan.api.displayNumber
 import dev.pokescan.api.marketPrice
 import dev.pokescan.api.variantLabel
 import dev.pokescan.api.variants
 import dev.pokescan.scan.CameraPreview
-import dev.pokescan.scan.CardTextParser
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,11 +94,12 @@ fun ScanScreen(vm: MainViewModel, onClose: () -> Unit) {
     val lookup by vm.lookup.collectAsStateWithLifecycle()
     val autoScan by vm.autoScan.collectAsStateWithLifecycle()
     val collection by vm.currentCollection.collectAsStateWithLifecycle()
+    val game by vm.scanGame.collectAsStateWithLifecycle()
     var manualQuery by rememberSaveable { mutableStateOf("") }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (hasPermission) {
-            CameraPreview(Modifier.fillMaxSize()) { vm.onFrameParsed(CardTextParser.parse(it)) }
+            CameraPreview(Modifier.fillMaxSize(), onText = vm::onFrameText)
             Box(
                 Modifier
                     .align(Alignment.Center)
@@ -136,12 +139,27 @@ fun ScanScreen(vm: MainViewModel, onClose: () -> Unit) {
                 Modifier.navigationBarsPadding().imePadding().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                collection?.let {
-                    Text(
-                        "Adding to ${it.name}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Game.entries.forEach { option ->
+                        FilterChip(
+                            selected = option == game,
+                            onClick = { vm.setScanGame(option) },
+                            label = { Text(option.label) },
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    collection?.let {
+                        Text(
+                            "Adding to ${it.name}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 Text(
                     if (live.isUseful) "Reading: ${live.describe()}" else "Fit the card inside the frame · tap to focus",
@@ -164,7 +182,9 @@ fun ScanScreen(vm: MainViewModel, onClose: () -> Unit) {
                         onValueChange = { manualQuery = it },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        placeholder = { Text("Search, e.g. Pikachu 25/165") },
+                        placeholder = {
+                            Text(if (game == Game.MTG) "Search, e.g. Lightning Bolt or MOM 123" else "Search, e.g. Pikachu 25/165")
+                        },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { vm.searchManual(manualQuery) }),
                     )
@@ -199,7 +219,8 @@ private fun MatchList(results: LookupState.Results, onAdd: (ApiCard, String) -> 
             style = MaterialTheme.typography.titleMedium,
         )
         Text(
-            if (capped) "Not here? Search with the card number too, e.g. Pikachu 25/165"
+            if (capped && results.cards.first().game == Game.MTG) "Not here? Search by set code and number, e.g. MOM 123"
+            else if (capped) "Not here? Search with the card number too, e.g. Pikachu 25/165"
             else "Tap a variant to add it to your collection",
             style = MaterialTheme.typography.bodySmall,
         )

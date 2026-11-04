@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import dev.pokescan.api.ApiCard
+import dev.pokescan.api.Game
 import dev.pokescan.api.marketPrice
 import dev.pokescan.api.tcgplayerUrl
 
@@ -24,6 +25,8 @@ data class CardCollection(
 data class CollectionEntry(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     @ColumnInfo(defaultValue = "1") val collectionId: Long = DEFAULT_COLLECTION_ID,
+    /** [Game.id]: "pokemon" (TCGdex card ids) or "mtg" (Scryfall card ids). */
+    @ColumnInfo(defaultValue = "pokemon") val game: String = Game.POKEMON.id,
     val cardId: String,
     val name: String,
     val setName: String,
@@ -46,6 +49,7 @@ data class CollectionEntry(
 
 fun ApiCard.toEntry(variant: String, collectionId: Long) = CollectionEntry(
     collectionId = collectionId,
+    game = game.id,
     cardId = id,
     name = name,
     setName = set.name,
@@ -76,6 +80,9 @@ fun CollectionEntry.updatedFrom(card: ApiCard) = copy(
     tcgplayerUrl = card.tcgplayerUrl(variant),
     imageUrl = card.images?.small ?: imageUrl,
 )
+
+val CollectionEntry.gameType: Game
+    get() = Game.from(game)
 
 val CollectionEntry.typeList: List<String>
     get() = types?.split(',')?.filter { it.isNotBlank() }.orEmpty()

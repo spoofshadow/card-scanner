@@ -87,7 +87,7 @@ abstract class CollectionDao {
     }
 }
 
-@Database(entities = [CollectionEntry::class, CardCollection::class], version = 4)
+@Database(entities = [CollectionEntry::class, CardCollection::class], version = 5)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun collectionDao(): CollectionDao
 
@@ -121,6 +121,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v5 adds the card's game; everything saved until now is Pokémon. */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `collection` ADD COLUMN `game` TEXT NOT NULL DEFAULT 'pokemon'")
+            }
+        }
+
         private fun insertDefaultCollection(db: SupportSQLiteDatabase) {
             db.execSQL(
                 "INSERT OR IGNORE INTO `collections` (`id`, `name`, `createdAt`) VALUES (?, ?, ?)",
@@ -130,7 +137,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "pokescan.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) = insertDefaultCollection(db)
                 })

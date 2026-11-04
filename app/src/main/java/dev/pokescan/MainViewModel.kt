@@ -5,7 +5,10 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.mlkit.vision.text.Text
 import dev.pokescan.api.ApiCard
+import dev.pokescan.api.Game
+import dev.pokescan.api.ScryfallApi
 import dev.pokescan.api.TcgdexApi
 import dev.pokescan.data.AppDatabase
 import dev.pokescan.data.CONDITIONS
@@ -14,9 +17,11 @@ import dev.pokescan.data.CollectionEntry
 import dev.pokescan.data.CsvExporter
 import dev.pokescan.data.CsvImporter
 import dev.pokescan.data.DEFAULT_COLLECTION_ID
+import dev.pokescan.data.gameType
 import dev.pokescan.data.toEntry
 import dev.pokescan.data.updatedFrom
 import dev.pokescan.scan.CardTextParser
+import dev.pokescan.scan.MtgTextParser
 import dev.pokescan.scan.ScanResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +56,7 @@ private const val STABLE_FRAMES = 3
 private const val KEY_SELECTED_COLLECTION = "selected_collection"
 private const val KEY_SORT_ORDER = "sort_order"
 private const val KEY_CARD_DATA_VERSION = "card_data_version"
+private const val KEY_SCAN_GAME = "scan_game"
 
 /**
  * Bump when saved cards gain a field that only a refresh from TCGdex can fill in
@@ -68,7 +74,12 @@ enum class SortOrder(val label: String) {
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val dao = AppDatabase.get(app).collectionDao()
     private val api = TcgdexApi()
+    private val scryfall = ScryfallApi()
     private val prefs = app.getSharedPreferences("settings", Context.MODE_PRIVATE)
+
+    private val _scanGame = MutableStateFlow(Game.from(prefs.getString(KEY_SCAN_GAME, null)))
+    /** Which game's cards the scanner reads and looks up. */
+    val scanGame = _scanGame.asStateFlow()
 
     val collections: StateFlow<List<CardCollection>> = dao.observeCollections()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -133,8 +144,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun setScanGame(game: Game) {
+        if (game == _scanGame.value) return
+        _scanGame.value = game
+        prefs.edit().putString(KEY_SCAN_GAME, game.id).apply()
+        // What was read or looked up belongs to the other game's parser and database.
+        lookupJob?.cancel()
+        _lookup.value = LookupState.Idle
+        _live.value = ScanResult.EMPTY
+        lastKey = null
+        lastLookupKey = null
+    }
+
     /** Called on the main thread for every OCR'd camera frame. */
-    fun onFrameParsed(result: ScanResult) {
+    fun onFrameText(text: Text) {
+        onFrameParsed(if (_scanGame.value == Game.MTG) MtgTextParser.parse(text) else CardTextParser.parse(text))
+    }
+
+    private fun onFrameParsed(result: ScanResult) {
         _live.value = result
         if (result.key == lastKey) stableCount++ else {
             lastKey = result.key
@@ -143,7 +170,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val busy = _lookup.value is LookupState.Loading || _lookup.value is LookupState.Results
         // Auto-scan only on a collector number, since a name alone matches too many printings.
         // Basic Energy is the exception: it often has no number, and its lookup lists every printing.
-        if (autoScan.value && !busy && (result.number != null || result.basicEnergy) &&
+        // So is Magic, where the title line is easy to read and Scryfall forgives misreadings.
+        val identifiable = result.number != null || result.basicEnergy ||
+            (_scanGame.value == Game.MTG && result.name != null)
+        if (autoScan.value && !busy && identifiable &&
             stableCount >= STABLE_FRAMES && result.key != lastLookupKey
         ) {
             lookup(result)
@@ -155,16 +185,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun searchManual(query: String) {
-        CardTextParser.parseQuery(query).takeIf { it.isUseful }?.let(::lookup)
+        val scan = if (_scanGame.value == Game.MTG) MtgTextParser.parseQuery(query) else CardTextParser.parseQuery(query)
+        scan.takeIf { it.isUseful }?.let(::lookup)
     }
 
     private fun lookup(scan: ScanResult) {
         lastLookupKey = scan.key
         lookupJob?.cancel()
         _lookup.value = LookupState.Loading
+        val game = _scanGame.value
         lookupJob = viewModelScope.launch {
             _lookup.value = try {
-                val result = api.identify(scan)
+                val result = if (game == Game.MTG) scryfall.identify(scan) else api.identify(scan)
                 if (result.cards.isEmpty()) LookupState.Error("No match for ${scan.describe()}")
                 else LookupState.Results(scan.describe(), result.cards, result.totalFound)
             } catch (e: CancellationException) {
@@ -240,12 +272,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _refreshing.value = true
             try {
                 val allEntries = dao.getAll()
-                val cards = api.getCards(allEntries.map { it.cardId }).associateBy { it.id }.toMutableMap()
+                val (magic, pokemon) = allEntries.partition { it.gameType == Game.MTG }
+                val cards = (api.getCards(pokemon.map { it.cardId }) + scryfall.getCards(magic.map { it.cardId }))
+                    .associateBy { it.id }
+                    .toMutableMap()
                 var unmatched = 0
                 for (entry in allEntries) {
                     // Ids from the old pokemontcg.io database differ, so find those cards by name and number.
                     val card = cards[entry.cardId]
-                        ?: api.findCard(entry.name, entry.number, entry.printedTotal, entry.setName)
+                        ?: entry.takeIf { it.gameType == Game.POKEMON }
+                            ?.let { api.findCard(it.name, it.number, it.printedTotal, it.setName) }
                             ?.also { cards[entry.cardId] = it }
                     if (card == null) {
                         unmatched++

@@ -1,14 +1,11 @@
 package dev.pokescan.api
 
 import dev.pokescan.scan.ScanResult
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -19,15 +16,15 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 data class ApiCard(
+    val game: Game,
     val id: String,
     val name: String,
     val number: String,
     val rarity: String?,
-    /** "Fire", "Water", … for Pokémon; "Trainer" or "Energy" for those cards. */
+    /** "Fire", "Water", … for Pokémon; "Trainer" or "Energy" for those cards; "Creature", … for Magic. */
     val types: List<String>,
     /** National Pokédex number (the first one for tag teams); null for Trainers and Energy. */
     val dexNumber: Int?,
@@ -78,11 +75,14 @@ val ApiCard.variants: List<String>
 private val VARIANT_ORDER = listOf(
     "normal", "holofoil", "reverseHolofoil",
     "1stEdition", "1stEditionNormal", "1stEditionHolofoil", "unlimited", "unlimitedHolofoil",
+    "foil", "etched",
 )
 
 fun variantLabel(variant: String): String = when (variant) {
     "normal" -> "Normal"
     "holofoil" -> "Holo"
+    "foil" -> "Foil"
+    "etched" -> "Etched Foil"
     "reverseHolofoil" -> "Reverse Holo"
     "1stEdition", "1stEditionNormal" -> "1st Edition"
     "1stEditionHolofoil" -> "1st Edition Holo"
@@ -218,30 +218,7 @@ class TcgdexApi(
     }
 
     /** GETs the url, returning null on 404 and retrying server errors with backoff. */
-    private suspend fun fetch(url: HttpUrl): String? = withContext(Dispatchers.IO) {
-        val request = Request.Builder().url(url).build()
-        var lastError = IOException("Card lookup failed")
-        for (attempt in 0 until MAX_ATTEMPTS) {
-            if (attempt > 0) delay((RETRY_BASE_MS shl (attempt - 1)).coerceAtMost(RETRY_MAX_MS))
-            val response = try {
-                client.newCall(request).execute()
-            } catch (e: IOException) {
-                lastError = e
-                continue
-            }
-            response.use {
-                if (it.isSuccessful) return@withContext it.body!!.string()
-                if (it.code == 404) return@withContext null
-                val retryable = it.code >= 500 || it.code == 429
-                lastError = IOException(
-                    if (retryable) "The card database is having trouble (HTTP ${it.code}). Try again in a moment."
-                    else "Card lookup failed (HTTP ${it.code})"
-                )
-                if (!retryable) throw lastError
-            }
-        }
-        throw lastError
-    }
+    private suspend fun fetch(url: HttpUrl): String? = client.fetchWithRetry(Request.Builder().url(url).build())
 
     private companion object {
         const val BASE_URL = "https://api.tcgdex.net/v2/en"
@@ -252,9 +229,6 @@ class TcgdexApi(
         /** Sets holding the current unnumbered basic Energy. */
         val ENERGY_SETS = setOf("sve", "mee")
         const val MAX_PARALLEL_REQUESTS = 6
-        const val MAX_ATTEMPTS = 4
-        const val RETRY_BASE_MS = 300L
-        const val RETRY_MAX_MS = 2_000L
     }
 }
 
@@ -291,6 +265,7 @@ private fun numberFilter(number: String): String {
 }
 
 private fun TcgdexCard.toApiCard() = ApiCard(
+    game = Game.POKEMON,
     id = id,
     name = name,
     number = localId,

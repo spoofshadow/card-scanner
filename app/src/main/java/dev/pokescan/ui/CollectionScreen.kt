@@ -78,6 +78,7 @@ import dev.pokescan.SortOrder
 import dev.pokescan.api.variantLabel
 import dev.pokescan.data.CardCollection
 import dev.pokescan.data.CollectionEntry
+import dev.pokescan.data.gameType
 import dev.pokescan.data.typeList
 import java.time.LocalDate
 
@@ -112,19 +113,23 @@ fun CollectionScreen(vm: MainViewModel, onScan: () -> Unit) {
     var searchAll by rememberSaveable { mutableStateOf(false) }
     var typeFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var rarityFilter by rememberSaveable { mutableStateOf<String?>(null) }
+    var gameFilter by rememberSaveable { mutableStateOf<String?>(null) }
     val searchAllActive = searching && searchAll && collections.size > 1
     val source = if (searchAllActive) allEntries else entries
+    val gameOptions = source.map { it.gameType.label }.distinct()
     // Offer only the types and rarities present; Trainer and Energy after the Pokémon types.
     val typeOptions = source.flatMap { it.typeList }.distinct()
         .sortedWith(compareBy({ it == "Trainer" || it == "Energy" }, { it }))
     val rarityOptions = source.mapNotNull { it.rarity }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
-    val filtering = searching && (query.isNotBlank() || typeFilter != null || rarityFilter != null)
+    val filtering = searching &&
+        (query.isNotBlank() || typeFilter != null || rarityFilter != null || gameFilter != null)
     val sortOrder by vm.sortOrder.collectAsStateWithLifecycle()
     val filtered = if (!filtering) source else source.filter { entry ->
         val q = query.trim()
         (entry.name.contains(q, ignoreCase = true) || entry.setName.contains(q, ignoreCase = true)) &&
             (typeFilter == null || typeFilter in entry.typeList) &&
-            (rarityFilter == null || entry.rarity.equals(rarityFilter, ignoreCase = true))
+            (rarityFilter == null || entry.rarity.equals(rarityFilter, ignoreCase = true)) &&
+            (gameFilter == null || entry.gameType.label == gameFilter)
     }
     val shown = sorted(filtered, sortOrder)
     val collectionNames = collections.associate { it.id to it.name }
@@ -133,6 +138,7 @@ fun CollectionScreen(vm: MainViewModel, onScan: () -> Unit) {
         query = ""
         typeFilter = null
         rarityFilter = null
+        gameFilter = null
     }
     BackHandler(enabled = searching, onBack = closeSearch)
 
@@ -207,6 +213,9 @@ fun CollectionScreen(vm: MainViewModel, onScan: () -> Unit) {
                     rarityFilter = rarityFilter,
                     rarityOptions = rarityOptions,
                     onRarityChange = { rarityFilter = it },
+                    gameFilter = gameFilter,
+                    gameOptions = gameOptions,
+                    onGameChange = { gameFilter = it },
                 )
             }
             Row(
@@ -433,6 +442,9 @@ private fun CardSearchField(
     rarityFilter: String?,
     rarityOptions: List<String>,
     onRarityChange: (String?) -> Unit,
+    gameFilter: String?,
+    gameOptions: List<String>,
+    onGameChange: (String?) -> Unit,
 ) {
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
@@ -470,6 +482,10 @@ private fun CardSearchField(
                         null
                     },
                 )
+            }
+            // Only worth offering once both games are in the cards being searched.
+            if (gameOptions.size > 1 || gameFilter != null) {
+                FilterDropdownChip("Game", gameFilter, gameOptions, onGameChange)
             }
             FilterDropdownChip("Type", typeFilter, typeOptions, onTypeChange)
             FilterDropdownChip("Rarity", rarityFilter, rarityOptions, onRarityChange)

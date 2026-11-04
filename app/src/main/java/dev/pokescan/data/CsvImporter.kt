@@ -1,5 +1,6 @@
 package dev.pokescan.data
 
+import dev.pokescan.api.Game
 import dev.pokescan.api.variantFromLabel
 import java.io.Reader
 import java.time.LocalDate
@@ -30,6 +31,8 @@ object CsvImporter {
             ImportedCard(
                 collectionName = get("Collection").ifBlank { null },
                 entry = CollectionEntry(
+                    // Files exported before Magic support have no Game column: those are Pokémon.
+                    game = Game.from(get("Game").ifBlank { null }).id,
                     cardId = cardId,
                     name = name,
                     setName = get("Set"),

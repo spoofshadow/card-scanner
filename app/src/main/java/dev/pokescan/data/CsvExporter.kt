@@ -8,7 +8,7 @@ import java.util.Locale
 
 object CsvExporter {
     private val header = listOf(
-        "Collection", "Quantity", "Name", "Set", "Set Code", "Card Number", "Set Total", "Rarity",
+        "Collection", "Game", "Quantity", "Name", "Set", "Set Code", "Card Number", "Set Total", "Rarity",
         "Type", "Dex Number", "Variant", "Condition", "Market Price (USD)", "Total Value (USD)", "TCGplayer URL", "Card ID",
         "Date Added",
     )
@@ -18,6 +18,7 @@ object CsvExporter {
         for (e in entries) {
             val row = listOf(
                 collectionNames[e.collectionId].orEmpty(),
+                e.gameType.label,
                 e.quantity.toString(),
                 e.name,
                 e.setName,
